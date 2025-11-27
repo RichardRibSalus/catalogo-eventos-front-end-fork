@@ -1,5 +1,7 @@
 // src/pages/DouradosPlusPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import SideBar from "../componentes/SideBar";
+import Header from "../componentes/Header";
 
 type Evento = {
   id: string;
@@ -157,6 +159,29 @@ export const DouradosPlusPage: React.FC = () => {
     return loadFromStorage() ?? initialData;
   });
 
+  
+  const [activeTab, setActiveTab] = useState<"eventos" | "turismo" | "cidades">(
+    "eventos"
+  );
+  const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // filtros de eventos
+  const [search, setSearch] = useState("");
+  const [cat, setCat] = useState("");
+  const [dataMin, setDataMin] = useState("");
+  
+  // modal de evento
+  const [isEventoModalOpen, setIsEventoModalOpen] = useState(false);
+  const [editingEvento, setEditingEvento] = useState<Evento | null>(null);
+  
+  const [isCidadeModalOpen, setIsCidadeModalOpen] = useState(false);
+  const [editingCidade, setEditingCidade] = useState<Cidade | null>(null);
+  
+  const [isPontoModalOpen, setIsPontoModalOpen] = useState(false);
+  const [editingPonto, setEditingPonto] = useState<Ponto | null>(null);
+  const [pontoCidadeId, setPontoCidadeId] = useState<string | null>(null);
+  
   useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem(
@@ -164,21 +189,80 @@ export const DouradosPlusPage: React.FC = () => {
       JSON.stringify({ events: appState.eventos, cidades: appState.cidades })
     );
   }, [appState]);
+    // ====== CRUD de CIDADES ======
 
-  const [activeTab, setActiveTab] = useState<"eventos" | "turismo" | "cidades">(
-    "eventos"
-  );
-  const [isSideMenuOpen, setIsSideMenuOpen] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  function handleOpenNovaCidade() {
+    setEditingCidade(null);
+    setIsCidadeModalOpen(true);
+  }
 
-  // filtros de eventos
-  const [search, setSearch] = useState("");
-  const [cat, setCat] = useState("");
-  const [dataMin, setDataMin] = useState("");
+  function handleEditCidade(cidade: Cidade) {
+    setEditingCidade(cidade);
+    setIsCidadeModalOpen(true);
+  }
 
-  // modal de evento
-  const [isEventoModalOpen, setIsEventoModalOpen] = useState(false);
-  const [editingEvento, setEditingEvento] = useState<Evento | null>(null);
+  function handleDeleteCidade(id: string) {
+    if (!window.confirm("Excluir esta cidade e todos os seus pontos turísticos?")) {
+      return;
+    }
+
+    setAppState((prev) => {
+      const cidades = prev.cidades.filter((c) => c.id !== id);
+
+      // Se a cidade selecionada foi excluída, seleciona outra
+      if (cidadeSelecionadaId === id) {
+        setCidadeSelecionadaId(cidades[0]?.id ?? null);
+      }
+
+      return { ...prev, cidades };
+    });
+  }
+
+  function handleSalvarCidade(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    const nome = (formData.get("nome") as string).trim();
+    const uf = ((formData.get("uf") as string) || "MS").trim();
+    const desc = (formData.get("desc") as string).trim();
+
+    if (!nome) {
+      window.alert("Informe pelo menos o nome da cidade.");
+      return;
+    }
+
+    setAppState((prev) => {
+      let cidades = [...prev.cidades];
+
+      if (editingCidade) {
+        const idx = cidades.findIndex((c) => c.id === editingCidade.id);
+        if (idx >= 0) {
+          const antiga = cidades[idx];
+          cidades[idx] = {
+            ...antiga,
+            nome,
+            uf,
+            desc,
+          };
+        }
+      } else {
+        const novaCidade: Cidade = {
+          id: createId(),
+          nome,
+          uf,
+          desc,
+          pontos: [],
+        };
+        cidades.push(novaCidade);
+      }
+
+      return { ...prev, cidades };
+    });
+
+    setIsCidadeModalOpen(false);
+    setEditingCidade(null);
+  }
+
 
   const eventosFiltrados = useMemo(() => {
     return appState.eventos
@@ -267,6 +351,108 @@ ${ev.desc}`
     );
   }
 
+    // ====== CRUD de PONTOS TURÍSTICOS ======
+
+  function handleOpenNovoPonto() {
+    if (!cidadeSelecionada) {
+      window.alert("Selecione uma cidade primeiro.");
+      return;
+    }
+    setEditingPonto(null);
+    setPontoCidadeId(cidadeSelecionada.id);
+    setIsPontoModalOpen(true);
+  }
+
+  function handleEditPonto(ponto: Ponto) {
+    if (!cidadeSelecionada) return;
+    setEditingPonto(ponto);
+    setPontoCidadeId(cidadeSelecionada.id);
+    setIsPontoModalOpen(true);
+  }
+
+  function handleDeletePonto(pontoId: string) {
+    if (!cidadeSelecionada) return;
+    if (!window.confirm("Excluir este ponto turístico?")) return;
+
+    setAppState((prev) => {
+      const cidades = prev.cidades.map((c) => {
+        if (c.id !== cidadeSelecionada.id) return c;
+        return {
+          ...c,
+          pontos: c.pontos.filter((p) => p.id !== pontoId),
+        };
+      });
+      return { ...prev, cidades };
+    });
+  }
+
+  function handleSalvarPonto(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    const cidadeId =
+      (formData.get("cidadeId") as string) || pontoCidadeId || "";
+
+    if (!cidadeId) {
+      window.alert("Selecione uma cidade para o ponto turístico.");
+      return;
+    }
+
+    const nome = (formData.get("nome") as string).trim();
+    const tipo = (formData.get("tipo") as string).trim();
+    const horario = (formData.get("horario") as string).trim();
+    const img = (formData.get("img") as string).trim();
+    const desc = (formData.get("desc") as string).trim();
+
+    if (!nome) {
+      window.alert("Informe pelo menos o nome do ponto turístico.");
+      return;
+    }
+
+    setAppState((prev) => {
+      const cidades = prev.cidades.map((c) => {
+        if (c.id !== cidadeId) return c;
+
+        const pontos = [...c.pontos];
+
+        if (editingPonto) {
+          const idx = pontos.findIndex((p) => p.id === editingPonto.id);
+          const novo: Ponto = {
+            id: editingPonto.id,
+            nome,
+            tipo,
+            horario,
+            img,
+            desc,
+          };
+          if (idx >= 0) {
+            pontos[idx] = novo;
+          } else {
+            pontos.push(novo);
+          }
+        } else {
+          pontos.push({
+            id: createId(),
+            nome,
+            tipo,
+            horario,
+            img,
+            desc,
+          });
+        }
+
+        return { ...c, pontos };
+      });
+
+      return { ...prev, cidades };
+    });
+
+    setIsPontoModalOpen(false);
+    setEditingPonto(null);
+    setPontoCidadeId(null);
+  }
+
+
   const cidades = appState.cidades;
   const [cidadeSelecionadaId, setCidadeSelecionadaId] = useState<string | null>(
     () => cidades[0]?.id ?? null
@@ -277,6 +463,18 @@ ${ev.desc}`
     () => cidades.find((c) => c.id === cidadeSelecionadaId) ?? cidades[0],
     [cidades, cidadeSelecionadaId]
   );
+
+  const handleActiveTab = (value: any) => {
+    setActiveTab(value)
+  }
+
+  const handleSideMenuOpen = () => {
+    setIsSideMenuOpen((o) => !o)
+  }
+
+  const handleShowFilters = () => {
+    setShowFilters((f) => !f)
+  }
 
   const pontosFiltrados = useMemo(() => {
     if (!cidadeSelecionada) return [];
@@ -300,114 +498,11 @@ ${ev.desc}`
       )}
 
       {/* Side menu */}
-      <nav
-        className={`fixed top-0 left-0 z-50 h-full w-72 bg-[#232f3e] text-white transform transition-transform duration-300 ${
-          isSideMenuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-        aria-label="Menu lateral de navegação"
-      >
-        <button
-          className="absolute top-3 right-4 text-2xl"
-          onClick={() => setIsSideMenuOpen(false)}
-          aria-label="Fechar menu"
-        >
-          &times;
-        </button>
-
-        <div className="pt-20">
-          <a
-            href="#"
-            className="block px-6 py-3 border-b border-white/10 hover:bg-[#37475a]"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab("eventos");
-              setIsSideMenuOpen(false);
-            }}
-          >
-            Início / Eventos
-          </a>
-          <a
-            href="#"
-            className="block px-6 py-3 border-b border-white/10 hover:bg-[#37475a]"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab("eventos");
-              setIsSideMenuOpen(false);
-            }}
-          >
-            Eventos e Categorias
-          </a>
-          <a
-            href="#"
-            className="block px-6 py-3 border-b border-white/10 hover:bg-[#37475a]"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab("turismo");
-              setIsSideMenuOpen(false);
-            }}
-          >
-            Turismo
-          </a>
-          <a
-            href="#"
-            className="block px-6 py-3 border-b border-white/10 hover:bg-[#37475a]"
-            onClick={(e) => {
-              e.preventDefault();
-              setActiveTab("cidades");
-              setIsSideMenuOpen(false);
-            }}
-          >
-            Cidades da região
-          </a>
-        </div>
-      </nav>
+      <SideBar open={isSideMenuOpen} handleSideMenuOpen={handleSideMenuOpen} handleActiveTab={handleActiveTab} />
 
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/80 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <button
-            className="flex flex-col gap-[5px] w-7 h-6 lg:hidden"
-            aria-label="Abrir menu"
-            aria-expanded={isSideMenuOpen}
-            onClick={() => setIsSideMenuOpen((p) => !p)}
-          >
-            <span
-              className={`h-[3px] rounded bg-[#e9f2ff] transition-transform ${
-                isSideMenuOpen ? "translate-y-[9px] rotate-45" : ""
-              }`}
-            />
-            <span
-              className={`h-[3px] rounded bg-[#e9f2ff] transition-opacity ${
-                isSideMenuOpen ? "opacity-0" : "opacity-100"
-              }`}
-            />
-            <span
-              className={`h-[3px] rounded bg-[#e9f2ff] transition-transform ${
-                isSideMenuOpen ? "-translate-y-[9px] -rotate-45" : ""
-              }`}
-            />
-          </button>
-
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[conic-gradient(at_50%_50%,#74f1ff,#7cffc1,#a58cff,#74f1ff)] shadow-[0_0_16px_rgba(116,241,255,0.35)]" />
-            <span className="font-extrabold tracking-[0.05em] text-lg">
-              Dourados<span className="opacity-70">+</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              className="inline-flex items-center justify-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-lg"
-              id="btn-toggle-busca"
-              onClick={() => setShowFilters((p) => !p)}
-              title="Buscar"
-            >
-              🔍
-            </button>
-          </div>
-        </div>
-      </header>
-
+      <Header open={isSideMenuOpen} handleShowFilters={handleShowFilters} handleSideMenuOpen={handleSideMenuOpen} />
+      
       {/* Filtros topo */}
       {showFilters && (
         <section className="border-b border-white/10 bg-slate-900/80">
